@@ -1,0 +1,150 @@
+# 服务器配置
+server:
+  address: 0.0.0.0 # IP访问地址
+  port: 8080 # todo 端口
+  servlet:
+    context-path: /api # 访问路径开头
+    # cookie 30 天过期
+    session:
+      cookie: # 自定义 cookie 属性
+        max-age: 86400 # 单位秒
+
+# todo 公共配置文件
+spring:
+  application:
+    name: intelligent-BI-platform # 项目名称
+  # todo 默认 dev 环境 , prod/test/dev
+  profiles:
+    active: dev
+  mvc:
+    pathmatch:
+      # 解决 Spring Boot 2.6.0 版本以上无法访问路径的问题（配合使用swagger文档时）
+      matching-strategy: ant_path_matcher
+  # todo 数据库配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/intelligent-BI-platform?useSSL=false&useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+  # todo Redis 配置
+  redis:
+    database: 1
+    host: localhost
+    port: 6379
+    timeout: 5000
+  # 若你的 Redis 需要密码，请打开注释，并填写密码
+  #    password: root
+  # Elasticsearch 配置
+  # todo 需替换配置，然后取消注释
+#  elasticsearch:
+#    uris: http://localhost:9200
+#    username: root
+#    password: 123456
+  # 文件上传
+  servlet:
+    multipart:
+      # 大小限制
+      max-file-size: 10MB
+  # session 配置
+  session:
+    # todo 开启分布式 session（须先配置 Redis）
+    store-type: redis
+    # 30 天过期
+    timeout: 86400
+  # 统一配置返回时间格式
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+# mybatis-plus 配置
+mybatis-plus:
+  configuration:
+    # todo 下划线驼峰命名映射，默认是开启的，若数据库字段采用驼峰式，设置为false
+    map-underscore-to-camel-case: true
+    # 开启 SQL 语句的打印
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    # 关闭mybatis-plus的logo日志
+    banner: false
+    db-config:
+      logic-delete-field: isDelete # 全局逻辑删除的实体字段名
+      logic-delete-value: 1 # 逻辑已删除值（默认为 1）
+      logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
+
+# 阿里云对象存储（至少需要配置为公共读）
+# todo 需替换配置
+oss:
+  client:
+    # key
+    accessKey: xxxxx
+    # secret
+    secretKey: xxxxx
+    # 桶的名字
+    bucket: xxxx
+    # 地域
+    region: xxxxx
+
+# 腾讯云cos对象存储
+# todo 需替换配置
+cos:
+  client:
+    accessKey: xxx
+    secretKey: xxx
+    region: xxx
+    bucket: xxx
+
+# 微信相关
+wx:
+  # 微信公众平台
+  # todo 需替换配置
+  mp:
+    token: xxx
+    aesKey: xxx
+    appId: xxx
+    secret: xxx
+    config-storage:
+      http-client-type: HttpClient
+      key-prefix: wx
+      redis:
+        host: 127.0.0.1
+        port: 6379
+      type: Memory
+  # 微信开放平台
+  # todo 需替换配置
+  open:
+    appId: xxx
+    appSecret: xxx
+
+# 接口文档配置
+knife4j:
+  enable: true
+  openapi:
+    title: 接口文档  # 标题
+    description: springboot模板项目的接口文档  # 简介/描述
+    email: xxx@qq.com # 邮箱
+    concat: 南烁  # 作者
+    url: https://www.github.com/nanshuo0814 # 作者链接
+    version: v4.0
+    license: Apache 2.0
+    license-url: https://stackoverflow.com/
+    terms-of-service-url: https://stackoverflow.com/
+    group:
+      nanshuo: # 分组名称
+        api-rule: package # 接口规则包扫描
+        api-rule-resources: # 接口规则资源扫描(controller包路径)
+          - com.nanshuo.BI.controller
+
+# todo 全局验证码开关，只包括有登录图片验证码、注册的图片、邮箱验证码，默认关闭
+captcha:
+  email-enabled: false # 邮箱验证码
+  image-enabled: false # 图片验证码
+
+# todo 邮箱配置,根据自己的邮箱需求配置
+email:
+  hostName: smtp.qq.com # 邮箱域名
+  emailAddress: xxxx@qq.com # 邮箱地址
+  password: xxxxx # 邮箱密码
+  senderName: intelligent-BI-platform # 发件人昵称
+  sslSmtpPort: 465 # 邮箱端口
+  mailTitle: 邮箱验证码 # 邮件标题
+  content: 快速开发模板 # 邮件正文里的项目名称
+  expireTime: 5 # 验证码过期时间，单位分钟
