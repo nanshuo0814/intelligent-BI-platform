@@ -2,6 +2,7 @@ package com.nanshuo.BI.utils.redis;
 
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
 import java.util.concurrent.TimeUnit;
@@ -13,7 +14,7 @@ import java.util.concurrent.TimeUnit;
  * @date 2024/03/28 11:12:22
  */
 // todo 取消注解开启redission工具类
-//@Component
+@Component
 public class RedissonUtils {
 
     @Resource

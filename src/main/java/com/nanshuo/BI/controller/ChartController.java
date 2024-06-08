@@ -30,12 +30,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
@@ -51,8 +51,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class ChartController {
 
     @Resource
-    private ChartService ChartService;
-    @Resource
     private UserService userService;
     @Resource
     private RedisLimiterManager redisLimiterManager;
@@ -60,7 +58,7 @@ public class ChartController {
     private ChartService chartService;
     @Resource
     private AiManager aiManager;
-    @Resource
+    @Autowired(required = false)
     private ThreadPoolExecutor threadPoolExecutor;
 
     // region 增删改查
@@ -83,7 +81,7 @@ public class ChartController {
         BeanUtils.copyProperties(chartAddRequest, Chart);
         User loginUser = userService.getLoginUser(request);
         Chart.setUserId(loginUser.getId());
-        boolean result = ChartService.save(Chart);
+        boolean result = chartService.save(Chart);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         long newChartId = Chart.getId();
         return ApiResult.success(newChartId);
@@ -105,7 +103,7 @@ public class ChartController {
         }
         Long id = idRequest.getId();
         validateAndCheckAuthForChartOperation(request, id);
-        return ApiResult.success(ChartService.removeById(id));
+        return ApiResult.success(chartService.removeById(id));
     }
 
     /**
@@ -125,9 +123,9 @@ public class ChartController {
         BeanUtils.copyProperties(chartUpdateRequest, Chart);
         long id = chartUpdateRequest.getId();
         // 判断是否存在
-        Chart oldChart = ChartService.getById(id);
+        Chart oldChart = chartService.getById(id);
         ThrowUtils.throwIf(oldChart == null, ErrorCode.NOT_FOUND_ERROR);
-        return ApiResult.success(ChartService.updateById(Chart));
+        return ApiResult.success(chartService.updateById(Chart));
     }
 
     /**
@@ -148,7 +146,7 @@ public class ChartController {
         Chart Chart = new Chart();
         BeanUtils.copyProperties(chartEditRequest, Chart);
         validateAndCheckAuthForChartOperation(request, chartEditRequest.getId());
-        boolean result = ChartService.updateById(Chart);
+        boolean result = chartService.updateById(Chart);
         return ApiResult.success(result);
     }
 
@@ -167,7 +165,7 @@ public class ChartController {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         long id = idRequest.getId();
-        Chart chart = ChartService.getById(id);
+        Chart chart = chartService.getById(id);
         if (chart == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
@@ -223,7 +221,7 @@ public class ChartController {
         long size = ChartQueryRequest.getPageSize();
         // 限制爬虫
         ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
-        Page<Chart> chartPage = ChartService.page(new Page<>(current, size), getQueryWrapper(ChartQueryRequest));
+        Page<Chart> chartPage =chartService.page(new Page<>(current, size), getQueryWrapper(ChartQueryRequest));
         return chartPage;
     }
 
@@ -240,7 +238,7 @@ public class ChartController {
     private void validateAndCheckAuthForChartOperation(HttpServletRequest request, Long id) {
         User loginUser = userService.getLoginUser(request);
         // 判断是否存在
-        Chart oldChart = ChartService.getById(id);
+        Chart oldChart = chartService.getById(id);
         ThrowUtils.throwIf(oldChart == null, ErrorCode.NOT_FOUND_ERROR);
         // 仅本人或管理员可操作（这里假设"编辑"和"删除"操作的权限是一样的）
         if (!oldChart.getUserId().equals(loginUser.getId()) && !userService.isAdmin(request)) {
@@ -331,7 +329,6 @@ public class ChartController {
         ThrowUtils.throwIf(!saveResult, ErrorCode.SYSTEM_ERROR, "图表保存失败");
 
         // todo 建议处理任务队列满了后，抛异常的情况
-        CompletableFuture.runAsync(() -> {
             // 先修改图表任务状态为 “执行中”。等执行成功后，修改为 “已完成”、保存执行结果；执行失败后，状态修改为 “失败”，记录任务失败信息。
             Chart updateChart = new Chart();
             updateChart.setId(chart.getId());
@@ -339,14 +336,12 @@ public class ChartController {
             boolean b = chartService.updateById(updateChart);
             if (!b) {
                 handleChartUpdateError(chart.getId(), "更新图表执行中状态失败");
-                return;
             }
             // 调用 AI
             String result = aiManager.doChat(biModelId, userInput.toString());
             String[] splits = result.split("【【【【【");
             if (splits.length < 3) {
                 handleChartUpdateError(chart.getId(), "AI 生成错误");
-                return;
             }
             String genChart = splits[1].trim();
             String genResult = splits[2].trim();
@@ -360,7 +355,6 @@ public class ChartController {
             if (!updateResult) {
                 handleChartUpdateError(chart.getId(), "更新图表成功状态失败");
             }
-        }, threadPoolExecutor);
 
         BiResponse biResponse = new BiResponse();
         biResponse.setChartId(chart.getId());
