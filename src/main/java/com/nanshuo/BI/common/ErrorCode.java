@@ -23,6 +23,8 @@ public enum ErrorCode {
 
     PARAMS_VALUE_ERROR(40004, "请求参数值不符合要求"),
 
+    TOO_MANY_REQUEST(40005, "请求过于频繁"),
+
     NOT_LOGIN_ERROR(40100, "未登录"),
 
     NO_AUTH_ERROR(40101, "无权限"),

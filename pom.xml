@@ -134,6 +134,11 @@
             <artifactId>knife4j-openapi2-spring-boot-starter</artifactId>
             <version>${knife4j.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.yucongming</groupId>
+            <artifactId>yucongming-java-sdk</artifactId>
+            <version>0.0.2</version>
+        </dependency>
         <!--        阿里云对象存储-->
         <dependency>
             <groupId>com.aliyun.oss</groupId>
