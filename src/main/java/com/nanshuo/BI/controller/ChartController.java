@@ -30,12 +30,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
@@ -58,8 +60,9 @@ public class ChartController {
     private ChartService chartService;
     @Resource
     private AiManager aiManager;
-    @Autowired(required = false)
+    @Resource
     private ThreadPoolExecutor threadPoolExecutor;
+
 
     // region 增删改查
 
@@ -278,9 +281,18 @@ public class ChartController {
 
     // endregion
 
+    /**
+     * gen图表 (按ai)
+     *
+     * @param multipartFile       多部分文件
+     * @param genChartByAiRequest 按ai请求生成图表
+     * @param request             请求
+     * @return {@link ApiResponse }<{@link BiResponse }>
+     */
     @PostMapping("/gen")
     @ApiOperation(value = "生成图表", notes = "生成图表")
-    public ApiResponse<BiResponse> genChartByAi(@RequestPart("file") MultipartFile multipartFile, GenChartByAiRequest genChartByAiRequest, HttpServletRequest request) {
+    public ApiResponse<BiResponse> genChartByAi(@RequestPart("file") MultipartFile multipartFile,
+                                                 GenChartByAiRequest genChartByAiRequest, HttpServletRequest request) {
         String name = genChartByAiRequest.getName();
         String goal = genChartByAiRequest.getGoal();
         String chartType = genChartByAiRequest.getChartType();
@@ -290,16 +302,36 @@ public class ChartController {
         // 校验文件
         long size = multipartFile.getSize();
         String originalFilename = multipartFile.getOriginalFilename();
-        ThrowUtils.throwIf(size > 1024 * 1024, ErrorCode.PARAMS_ERROR, "文件超过 1M");
-        // 校验文件的后缀名
+        // 校验文件大小
+        final long ONE_MB = 1024 * 1024L;
+        ThrowUtils.throwIf(size > ONE_MB, ErrorCode.PARAMS_ERROR, "文件超过 1M");
+        // 校验文件后缀 aaa.png
         String suffix = FileUtil.getSuffix(originalFilename);
-        ThrowUtils.throwIf(!"xlsx".contains(suffix), ErrorCode.PARAMS_ERROR, "文件后缀非法");
-        // 校验用户
-        User loginUser = userService.getLoginUser(request);
-        // 限流判断，每一个用户一个限流器
-        redisLimiterManager.doRateLimit("genChartByAi_" + loginUser.getId());
+        final List<String> validFileSuffixList = Arrays.asList("xlsx");
+        ThrowUtils.throwIf(!validFileSuffixList.contains(suffix), ErrorCode.PARAMS_ERROR, "文件后缀非法");
 
+        User loginUser = userService.getLoginUser(request);
+        // 限流判断，每个用户一个限流器
+        redisLimiterManager.doRateLimit("genChartByAi_" + loginUser.getId());
+        // 无需写 prompt，直接调用现有模型，https://www.yucongming.com，公众号搜【鱼聪明AI】
+//        final String prompt = "你是一个数据分析师和前端开发专家，接下来我会按照以下固定格式给你提供内容：\n" +
+//                "分析需求：\n" +
+//                "{数据分析的需求或者目标}\n" +
+//                "原始数据：\n" +
+//                "{csv格式的原始数据，用,作为分隔符}\n" +
+//                "请根据这两部分内容，按照以下指定格式生成内容（此外不要输出任何多余的开头、结尾、注释）\n" +
+//                "【【【【【\n" +
+//                "{前端 Echarts V5 的 option 配置对象js代码，合理地将数据进行可视化，不要生成任何多余的内容，比如注释}\n" +
+//                "【【【【【\n" +
+//                "{明确的数据分析结论、越详细越好，不要生成多余的注释}";
         long biModelId = CommonConstant.BI_MODEL_ID;
+        // 分析需求：
+        // 分析网站用户的增长情况
+        // 原始数据：
+        // 日期,用户数
+        // 1号,10
+        // 2号,20
+        // 3号,30
 
         // 构造用户输入
         StringBuilder userInput = new StringBuilder();
@@ -312,7 +344,97 @@ public class ChartController {
         }
         userInput.append(userGoal).append("\n");
         userInput.append("原始数据：").append("\n");
+        // 压缩后的数据
+        String csvData = ExcelUtils.excelToCsv(multipartFile);
+        userInput.append(csvData).append("\n");
 
+        String result = aiManager.doChat(biModelId, userInput.toString());
+        String[] splits = result.split("【【【【【");
+        if (splits.length < 3) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "AI 生成错误");
+        }
+        String genChart = splits[1].trim();
+        String genResult = splits[2].trim();
+        // 插入到数据库
+        Chart chart = new Chart();
+        chart.setName(name);
+        chart.setGoal(goal);
+        chart.setChartData(csvData);
+        chart.setChartType(chartType);
+        chart.setGenChart(genChart);
+        chart.setGenResult(genResult);
+        chart.setUserId(loginUser.getId());
+        boolean saveResult = chartService.save(chart);
+        ThrowUtils.throwIf(!saveResult, ErrorCode.SYSTEM_ERROR, "图表保存失败");
+        BiResponse biResponse = new BiResponse();
+        biResponse.setGenChart(genChart);
+        biResponse.setGenResult(genResult);
+        biResponse.setChartId(chart.getId());
+        return ApiResult.success(biResponse);
+    }
+
+    /**
+     * 通过ai异步生成图表
+     *
+     * @param multipartFile       多部分文件
+     * @param genChartByAiRequest 按ai请求生成图表
+     * @param request             请求
+     * @return {@link ApiResponse }<{@link BiResponse }>
+     */
+    @PostMapping("/gen/async")
+    public ApiResponse<BiResponse> genChartByAiAsync(@RequestPart("file") MultipartFile multipartFile,
+                                                      GenChartByAiRequest genChartByAiRequest, HttpServletRequest request) {
+        String name = genChartByAiRequest.getName();
+        String goal = genChartByAiRequest.getGoal();
+        String chartType = genChartByAiRequest.getChartType();
+        // 校验
+        ThrowUtils.throwIf(StringUtils.isBlank(goal), ErrorCode.PARAMS_ERROR, "目标为空");
+        ThrowUtils.throwIf(StringUtils.isNotBlank(name) && name.length() > 100, ErrorCode.PARAMS_ERROR, "名称过长");
+        // 校验文件
+        long size = multipartFile.getSize();
+        String originalFilename = multipartFile.getOriginalFilename();
+        // 校验文件大小
+        final long ONE_MB = 1024 * 1024L;
+        ThrowUtils.throwIf(size > ONE_MB, ErrorCode.PARAMS_ERROR, "文件超过 1M");
+        // 校验文件后缀 aaa.png
+        String suffix = FileUtil.getSuffix(originalFilename);
+        final List<String> validFileSuffixList = Arrays.asList("xlsx", "xls");
+        ThrowUtils.throwIf(!validFileSuffixList.contains(suffix), ErrorCode.PARAMS_ERROR, "文件后缀非法");
+
+        User loginUser = userService.getLoginUser(request);
+        // 限流判断，每个用户一个限流器
+        redisLimiterManager.doRateLimit("genChartByAi_" + loginUser.getId());
+        // 无需写 prompt，直接调用现有模型，https://www.yucongming.com，公众号搜【鱼聪明AI】
+//        final String prompt = "你是一个数据分析师和前端开发专家，接下来我会按照以下固定格式给你提供内容：\n" +
+//                "分析需求：\n" +
+//                "{数据分析的需求或者目标}\n" +
+//                "原始数据：\n" +
+//                "{csv格式的原始数据，用,作为分隔符}\n" +
+//                "请根据这两部分内容，按照以下指定格式生成内容（此外不要输出任何多余的开头、结尾、注释）\n" +
+//                "【【【【【\n" +
+//                "{前端 Echarts V5 的 option 配置对象js代码，合理地将数据进行可视化，不要生成任何多余的内容，比如注释}\n" +
+//                "【【【【【\n" +
+//                "{明确的数据分析结论、越详细越好，不要生成多余的注释}";
+        long biModelId = 1659171950288818178L;
+        // 分析需求：
+        // 分析网站用户的增长情况
+        // 原始数据：
+        // 日期,用户数
+        // 1号,10
+        // 2号,20
+        // 3号,30
+
+        // 构造用户输入
+        StringBuilder userInput = new StringBuilder();
+        userInput.append("分析需求：").append("\n");
+
+        // 拼接分析目标
+        String userGoal = goal;
+        if (StringUtils.isNotBlank(chartType)) {
+            userGoal += "，请使用" + chartType;
+        }
+        userInput.append(userGoal).append("\n");
+        userInput.append("原始数据：").append("\n");
         // 压缩后的数据
         String csvData = ExcelUtils.excelToCsv(multipartFile);
         userInput.append(csvData).append("\n");
@@ -329,6 +451,7 @@ public class ChartController {
         ThrowUtils.throwIf(!saveResult, ErrorCode.SYSTEM_ERROR, "图表保存失败");
 
         // todo 建议处理任务队列满了后，抛异常的情况
+        CompletableFuture.runAsync(() -> {
             // 先修改图表任务状态为 “执行中”。等执行成功后，修改为 “已完成”、保存执行结果；执行失败后，状态修改为 “失败”，记录任务失败信息。
             Chart updateChart = new Chart();
             updateChart.setId(chart.getId());
@@ -336,12 +459,14 @@ public class ChartController {
             boolean b = chartService.updateById(updateChart);
             if (!b) {
                 handleChartUpdateError(chart.getId(), "更新图表执行中状态失败");
+                return;
             }
             // 调用 AI
             String result = aiManager.doChat(biModelId, userInput.toString());
             String[] splits = result.split("【【【【【");
             if (splits.length < 3) {
                 handleChartUpdateError(chart.getId(), "AI 生成错误");
+                return;
             }
             String genChart = splits[1].trim();
             String genResult = splits[2].trim();
@@ -355,11 +480,14 @@ public class ChartController {
             if (!updateResult) {
                 handleChartUpdateError(chart.getId(), "更新图表成功状态失败");
             }
+        }, threadPoolExecutor);
 
         BiResponse biResponse = new BiResponse();
         biResponse.setChartId(chart.getId());
         return ApiResult.success(biResponse);
     }
+
+
 
     private void handleChartUpdateError(long chartId, String execMessage) {
         Chart updateChartResult = new Chart();

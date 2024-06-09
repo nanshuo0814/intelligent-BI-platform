@@ -6,6 +6,9 @@ import java.io.Serializable;
 
 /**
  * 文件上传请求
+ *
+ * @author nanshuo
+ * @date 2024/06/09
  */
 @Data
 public class GenChartByAiRequest implements Serializable {
