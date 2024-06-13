@@ -45,6 +45,11 @@ spring:
     multipart:
       # 大小限制
       max-file-size: 10MB
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
   # session 配置
   session:
     # todo 开启分布式 session（须先配置 Redis）
